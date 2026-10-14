@@ -3,6 +3,10 @@
 import React, { useMemo, useState } from "react";
 import { newsItems } from "./data/newsData";
 import "./App.css";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import AdminLogin from "./AdminLogin";
+import AdminHome from "./AdminHome";
 
 const FALLBACK_IMAGE =
   "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=900&q=85";
@@ -230,7 +234,8 @@ function MovieCard({ movie, onSelect }) {
   );
 }
 
-function App() {
+function HomePage(){
+  const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState("Home");
   const [search, setSearch] = useState("");
   const [trailerFilter, setTrailerFilter] = useState("All");
@@ -274,6 +279,7 @@ function App() {
   function openMovie(movie) {
     setSelectedMovie(movie);
     setNotice("");
+
   }
 
   return (
@@ -332,7 +338,7 @@ function App() {
 
         <button
           className="login-button"
-          onClick={() => setNotice("Login feature will be connected later.")}
+          onClick={() => navigate("/admin/login")}
         >
           <span>♟</span> Login
         </button>
@@ -661,6 +667,19 @@ function App() {
         </div>
       )}
     </div>
+  );
+}
+
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin/home" element={<AdminHome />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
