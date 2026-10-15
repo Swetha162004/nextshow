@@ -7,6 +7,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 import AdminLogin from "./AdminLogin";
 import AdminHome from "./AdminHome";
+import AdminHome from "./AdminHomee";
+
 
 const FALLBACK_IMAGE =
   "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=900&q=85";
