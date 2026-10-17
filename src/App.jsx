@@ -6,7 +6,7 @@ import "./App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 import AdminLogin from "./AdminLogin";
-import AdminHome from "./AdminHome";
+import AdminHome from "./AdminHomee";
 
 
 
