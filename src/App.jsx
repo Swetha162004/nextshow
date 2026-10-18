@@ -1,14 +1,10 @@
 
-
 import React, { useMemo, useState } from "react";
 import { newsItems } from "./data/newsData";
 import "./App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import AdminLogin from "./AdminLogin";
 import AdminHome from "./AdminHomee";
-
-
 
 const FALLBACK_IMAGE =
   "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=900&q=85";
@@ -31,8 +27,7 @@ const movies = [
     genres: ["Action", "Drama"],
     director: "Mu. Maran",
     cast: ["Vijay Antony", "Preethi Asrani", "Lithanya"],
-    image:
-      "https://insightfulreels.com/_astro/featured.EGsM9mup_29Rujz.webp",
+    image: "https://insightfulreels.com/_astro/featured.EGsM9mup_29Rujz.webp",
   },
   {
     title: "Dayangaram",
@@ -74,8 +69,7 @@ const trendingMovies = [
     genres: ["Drama", "Sports", "Action"],
     director: "Mathimaran Pugazhendhi",
     cast: ["Soori", "Suhas", "Mahima Nambiar"],
-    image:
-      "https://static.moviecrow.com/gallery/20250420/245395-maandadi.jpg",
+    image: "https://static.moviecrow.com/gallery/20250420/245395-maandadi.jpg",
   },
   {
     title: "Sardar 2",
@@ -236,7 +230,7 @@ function MovieCard({ movie, onSelect }) {
   );
 }
 
-function HomePage(){
+function HomePage() {
   const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState("Home");
   const [search, setSearch] = useState("");
@@ -281,7 +275,6 @@ function HomePage(){
   function openMovie(movie) {
     setSelectedMovie(movie);
     setNotice("");
-
   }
 
   return (
@@ -424,10 +417,7 @@ function HomePage(){
             {(showAllNews ? [...newsItems, ...newsItems] : newsItems).map(
               (item, index) => (
                 <article className="news-item" key={`${item.title}-${index}`}>
-                  <SafeImage
-                    src={item.image}
-                    alt={item.title}
-                  />
+                  <SafeImage src={item.image} alt={item.title} />
 
                   <div className="news-copy">
                     <button onClick={() => setNotice(item.title)}>
@@ -585,9 +575,7 @@ function HomePage(){
                 </article>
               ))
             ) : (
-              <p className="empty-state">
-                No videos in this category yet.
-              </p>
+              <p className="empty-state">No videos in this category yet.</p>
             )}
           </div>
         </section>
@@ -634,10 +622,7 @@ function HomePage(){
               ×
             </button>
 
-            <SafeImage
-              src={selectedMovie.image}
-              alt={selectedMovie.title}
-            />
+            <SafeImage src={selectedMovie.image} alt={selectedMovie.title} />
 
             <div className="modal-content">
               <span className="status-pill">{selectedMovie.status}</span>
@@ -672,17 +657,26 @@ function HomePage(){
   );
 }
 
-
 function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/admin/login" element={<AdminLogin />} />
+
+        <Route path="/admin" element={<AdminHome />} />
         <Route path="/admin/home" element={<AdminHome />} />
+        <Route path="/admin/movies" element={<AdminHome />} />
+        <Route path="/admin/news" element={<AdminHome />} />
+        <Route path="/admin/videos" element={<AdminHome />} />
+        <Route path="/admin/settings" element={<AdminHome />} />
+
+        <Route path="*" element={<HomePage />} />
       </Routes>
     </BrowserRouter>
   );
 }
 
 export default App;
+
+

@@ -1,24 +1,23 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 const emptyMovie = {
-  title: '', slug: '', description: '', poster_url: '',
-  banner_url: '', director: '', cast_members: '',
-  release_date: '', ott_release_date: '',
+  title: '', slug: '', description: '', poster_url: '', banner_url: '',
+  director: '', cast_members: '', release_date: '', ott_release_date: '',
   status: 'UPCOMING', is_published: false,
 }
 
 const emptyNews = {
   title: '', slug: '', short_description: '', content: '',
-  image_url: '', category: 'MOVIE', tagsText: '',
-  is_published: false,
+  image_url: '', category: 'MOVIE', tagsText: '', is_published: false,
 }
 
 const emptyVideo = {
   title: '', slug: '', description: '', video_url: '',
-  thumbnail_url: '', movie_title: '',
-  video_type: 'TRAILER', is_published: false,
+  thumbnail_url: '', movie_title: '', video_type: 'TRAILER',
+  is_published: false,
 }
 
 const emptySettings = {
@@ -30,29 +29,61 @@ const emptySettings = {
   facebook_url: '',
 }
 
-const slugify = (value) =>
+const slugify = (value = '') =>
   value.toLowerCase().trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
 
+const pageRoutes = {
+  Dashboard: '/admin/home',
+  Movies: '/admin/movies',
+  News: '/admin/news',
+  Videos: '/admin/videos',
+  Settings: '/admin/settings',
+}
+
+const routePages = {
+  '/admin': 'Dashboard',
+  '/admin/home': 'Dashboard',
+  '/admin/movies': 'Movies',
+  '/admin/news': 'News',
+  '/admin/videos': 'Videos',
+  '/admin/settings': 'Settings',
+}
+
+const formatDate = (date) => {
+  if (!date) return 'Date unavailable'
+
+  return new Date(date).toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export default function AdminHome() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const activePage = routePages[location.pathname] || 'Dashboard'
+
   const [email, setEmail] = useState('')
   const [checking, setChecking] = useState(true)
-  const [activePage, setActivePage] = useState('Dashboard')
 
   const [movies, setMovies] = useState([])
-  const [movie, setMovie] = useState(emptyMovie)
+  const [movie, setMovie] = useState({ ...emptyMovie })
   const [editingId, setEditingId] = useState(null)
 
   const [newsItems, setNewsItems] = useState([])
-  const [newsItem, setNewsItem] = useState(emptyNews)
+  const [newsItem, setNewsItem] = useState({ ...emptyNews })
   const [editingNewsId, setEditingNewsId] = useState(null)
 
   const [videos, setVideos] = useState([])
-  const [video, setVideo] = useState(emptyVideo)
+  const [video, setVideo] = useState({ ...emptyVideo })
   const [editingVideoId, setEditingVideoId] = useState(null)
 
-  const [siteSettings, setSiteSettings] = useState(emptySettings)
+  const [siteSettings, setSiteSettings] = useState({ ...emptySettings })
   const [settingsLoading, setSettingsLoading] = useState(false)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsMessage, setSettingsMessage] = useState('')
@@ -62,7 +93,25 @@ export default function AdminHome() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
+  // DASHBOARD ANALYTICS
+  const [dashboardLoading, setDashboardLoading] = useState(false)
+  const [dashboardStats, setDashboardStats] = useState({
+    movies: 0,
+    news: 0,
+    videos: 0,
+  })
+  const [recentActivity, setRecentActivity] = useState([])
+
+  function goToPage(page) {
+    navigate(pageRoutes[page] || '/admin/home')
+    setMessage('')
+    setError('')
+    setSettingsMessage('')
+  }
+
   useEffect(() => {
+    let mounted = true
+
     async function checkUser() {
       try {
         const { data, error } = await supabase.auth.getUser()
@@ -72,19 +121,26 @@ export default function AdminHome() {
           return
         }
 
-        setEmail(data.user.email || '')
-        setChecking(false)
+        if (mounted) {
+          setEmail(data.user.email || '')
+          setChecking(false)
+        }
       } catch {
         window.location.replace('/admin/login')
       }
     }
 
     checkUser()
+
+    return () => {
+      mounted = false
+    }
   }, [])
 
   useEffect(() => {
     if (checking) return
 
+    if (activePage === 'Dashboard') loadDashboard()
     if (activePage === 'Movies') loadMovies()
     if (activePage === 'News') loadNews()
     if (activePage === 'Videos') loadVideos()
@@ -96,8 +152,108 @@ export default function AdminHome() {
   }
 
   async function logout() {
-    await supabase.auth.signOut()
+    const { error } = await supabase.auth.signOut()
+
+    if (error) {
+      notifyError(error)
+      return
+    }
+
     window.location.replace('/admin/login')
+  }
+
+  // DASHBOARD: DATABASE COUNTS + RECENT ACTIVITY
+
+  async function loadDashboard() {
+    setDashboardLoading(true)
+    setError('')
+
+    try {
+      const [
+        movieCount,
+        newsCount,
+        videoCount,
+        latestMovies,
+        latestNews,
+        latestVideos,
+      ] = await Promise.all([
+        supabase.from('movies').select('id', { count: 'exact', head: true }),
+        supabase.from('news').select('id', { count: 'exact', head: true }),
+        supabase.from('videos').select('id', { count: 'exact', head: true }),
+
+        supabase
+          .from('movies')
+          .select('id, title, created_at, is_published')
+          .order('created_at', { ascending: false })
+          .limit(5),
+
+        supabase
+          .from('news')
+          .select('id, title, created_at, is_published')
+          .order('created_at', { ascending: false })
+          .limit(5),
+
+        supabase
+          .from('videos')
+          .select('id, title, created_at, is_published')
+          .order('created_at', { ascending: false })
+          .limit(5),
+      ])
+
+      const results = [
+        movieCount,
+        newsCount,
+        videoCount,
+        latestMovies,
+        latestNews,
+        latestVideos,
+      ]
+
+      const failed = results.find((result) => result.error)
+      if (failed) throw failed.error
+
+      setDashboardStats({
+        movies: movieCount.count ?? 0,
+        news: newsCount.count ?? 0,
+        videos: videoCount.count ?? 0,
+      })
+
+      const activity = [
+        ...(latestMovies.data || []).map((item) => ({
+          ...item,
+          type: 'Movie',
+          icon: '🎬',
+          page: 'Movies',
+          activityId: `movie-${item.id}`,
+        })),
+        ...(latestNews.data || []).map((item) => ({
+          ...item,
+          type: 'News',
+          icon: '📰',
+          page: 'News',
+          activityId: `news-${item.id}`,
+        })),
+        ...(latestVideos.data || []).map((item) => ({
+          ...item,
+          type: 'Video',
+          icon: '▶️',
+          page: 'Videos',
+          activityId: `video-${item.id}`,
+        })),
+      ]
+
+      activity.sort((a, b) => {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0
+        return dateB - dateA
+      })
+
+      setRecentActivity(activity.slice(0, 8))
+    } catch (err) {
+      notifyError(err)
+    } finally {
+      setDashboardLoading(false)
+    }
   }
 
   // MOVIES
@@ -127,9 +283,7 @@ export default function AdminHome() {
     setMovie((prev) => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
-      ...(name === 'title' && !editingId
-        ? { slug: slugify(value) }
-        : {}),
+      ...(name === 'title' && !editingId ? { slug: slugify(value) } : {}),
     }))
   }
 
@@ -194,8 +348,9 @@ export default function AdminHome() {
       .delete()
       .eq('id', item.id)
 
-    if (error) notifyError(error)
-    else {
+    if (error) {
+      notifyError(error)
+    } else {
       setMessage('Movie deleted!')
       if (editingId === item.id) resetMovie()
       await loadMovies()
@@ -229,9 +384,7 @@ export default function AdminHome() {
     setNewsItem((prev) => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
-      ...(name === 'title' && !editingNewsId
-        ? { slug: slugify(value) }
-        : {}),
+      ...(name === 'title' && !editingNewsId ? { slug: slugify(value) } : {}),
     }))
   }
 
@@ -268,7 +421,7 @@ export default function AdminHome() {
         category: newsItem.category || 'MOVIE',
         tags: newsItem.tagsText
           .split(',')
-          .map((x) => x.trim())
+          .map((tag) => tag.trim())
           .filter(Boolean),
         is_published: newsItem.is_published,
       }
@@ -300,8 +453,9 @@ export default function AdminHome() {
       .delete()
       .eq('id', item.id)
 
-    if (error) notifyError(error)
-    else {
+    if (error) {
+      notifyError(error)
+    } else {
       setMessage('News deleted!')
       if (editingNewsId === item.id) resetNews()
       await loadNews()
@@ -335,9 +489,7 @@ export default function AdminHome() {
     setVideo((prev) => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
-      ...(name === 'title' && !editingVideoId
-        ? { slug: slugify(value) }
-        : {}),
+      ...(name === 'title' && !editingVideoId ? { slug: slugify(value) } : {}),
     }))
   }
 
@@ -403,8 +555,9 @@ export default function AdminHome() {
       .delete()
       .eq('id', item.id)
 
-    if (error) notifyError(error)
-    else {
+    if (error) {
+      notifyError(error)
+    } else {
       setMessage('Video deleted successfully!')
       if (editingVideoId === item.id) resetVideo()
       await loadVideos()
@@ -447,11 +600,7 @@ export default function AdminHome() {
 
   function changeSetting(e) {
     const { name, value } = e.target
-
-    setSiteSettings((prev) => ({
-      ...prev,
-      [name]: value,
-    }))
+    setSiteSettings((prev) => ({ ...prev, [name]: value }))
   }
 
   async function saveSettings(e) {
@@ -477,7 +626,6 @@ export default function AdminHome() {
         )
 
       if (error) throw error
-
       setSettingsMessage('Settings saved successfully!')
     } catch (err) {
       setSettingsMessage('Save failed: ' + err.message)
@@ -487,26 +635,10 @@ export default function AdminHome() {
   }
 
   const sections = [
-    {
-      title: 'Movies',
-      icon: '🎬',
-      description: 'Manage movie information',
-    },
-    {
-      title: 'News',
-      icon: '📰',
-      description: 'Publish movie news',
-    },
-    {
-      title: 'Videos',
-      icon: '▶️',
-      description: 'Manage trailers and teasers',
-    },
-    {
-      title: 'Settings',
-      icon: '⚙️',
-      description: 'Website and social media settings',
-    },
+    { title: 'Movies', icon: '🎬', description: 'Manage movie information' },
+    { title: 'News', icon: '📰', description: 'Publish movie news' },
+    { title: 'Videos', icon: '▶️', description: 'Manage trailers and teasers' },
+    { title: 'Settings', icon: '⚙️', description: 'Website and social media settings' },
   ]
 
   if (checking) {
@@ -516,14 +648,15 @@ export default function AdminHome() {
   return (
     <div style={s.page}>
       <aside style={s.sidebar}>
-        <h2>
+        <button style={s.brand} onClick={() => goToPage('Dashboard')}>
           <span style={{ color: '#e50914' }}>NEXT</span>SHOW
-        </h2>
+        </button>
+
         <p style={s.muted}>ADMIN PANEL</p>
 
         <button
           style={activePage === 'Dashboard' ? s.active : s.nav}
-          onClick={() => setActivePage('Dashboard')}
+          onClick={() => goToPage('Dashboard')}
         >
           ▦ Dashboard
         </button>
@@ -532,15 +665,13 @@ export default function AdminHome() {
           <button
             key={item.title}
             style={activePage === item.title ? s.active : s.nav}
-            onClick={() => setActivePage(item.title)}
+            onClick={() => goToPage(item.title)}
           >
             {item.icon} {item.title}
           </button>
         ))}
 
-        <button style={s.logout} onClick={logout}>
-          Logout
-        </button>
+        <button style={s.logout} onClick={logout}>Logout</button>
       </aside>
 
       <main style={s.main}>
@@ -549,145 +680,204 @@ export default function AdminHome() {
             <h1>{activePage}</h1>
             <p style={s.muted}>Manage your NextShow content</p>
           </div>
-          <span>{email}</span>
+          <span style={s.email}>{email}</span>
         </header>
 
+        {message && <p style={s.success}>{message}</p>}
+        {error && <p style={s.error}>{error}</p>}
+
         {/* DASHBOARD */}
-        {activePage === 'Dashboard' ? (
+        {activePage === 'Dashboard' && (
           <>
             <section style={s.welcome}>
-              <h2>Welcome to NextShow Admin 👋</h2>
-              <p>Manage movies, entertainment news and video trailers.</p>
+              <div style={s.dashboardWelcome}>
+                <div>
+                  <p style={s.eyebrow}>NEXTSHOW ADMIN</p>
+                  <h2>Welcome back! 👋</h2>
+                  <p style={s.muted}>
+                    Manage your movies, entertainment news and video trailers
+                    from one place.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  style={s.secondary}
+                  onClick={loadDashboard}
+                  disabled={dashboardLoading}
+                >
+                  {dashboardLoading ? 'Refreshing...' : '↻ Refresh Dashboard'}
+                </button>
+              </div>
             </section>
 
-            <section style={s.cards}>
-              {sections.slice(0, 3).map((item) => (
-                <button
-                  key={item.title}
-                  style={s.card}
-                  onClick={() => setActivePage(item.title)}
-                >
-                  <h2>{item.icon} {item.title}</h2>
-                  <p>{item.description}</p>
-                  <span style={s.badge}>Open {item.title} →</span>
-                </button>
-              ))}
+            <section style={s.statGrid}>
+              <button
+                type="button"
+                style={s.statCard}
+                onClick={() => goToPage('Movies')}
+              >
+                <span style={s.statIcon}>🎬</span>
+                <span style={s.statLabel}>Total Movies</span>
+                <strong style={s.statNumber}>
+                  {dashboardLoading ? '...' : dashboardStats.movies}
+                </strong>
+                <span style={s.statFooter}>Manage movies →</span>
+              </button>
 
               <button
-                style={s.card}
-                onClick={() => setActivePage('Settings')}
+                type="button"
+                style={s.statCard}
+                onClick={() => goToPage('News')}
               >
-                <h2>⚙️ Settings</h2>
-                <p>Manage website and social media details</p>
-                <span style={s.badge}>Open Settings →</span>
+                <span style={s.statIcon}>📰</span>
+                <span style={s.statLabel}>Total News</span>
+                <strong style={s.statNumber}>
+                  {dashboardLoading ? '...' : dashboardStats.news}
+                </strong>
+                <span style={s.statFooter}>Manage news →</span>
+              </button>
+
+              <button
+                type="button"
+                style={s.statCard}
+                onClick={() => goToPage('Videos')}
+              >
+                <span style={s.statIcon}>▶️</span>
+                <span style={s.statLabel}>Total Videos</span>
+                <strong style={s.statNumber}>
+                  {dashboardLoading ? '...' : dashboardStats.videos}
+                </strong>
+                <span style={s.statFooter}>Manage videos →</span>
               </button>
             </section>
-          </>
 
-        /* MOVIES */
-        ) : activePage === 'Movies' ? (
+            <section style={s.welcome}>
+              <h2>Quick Actions</h2>
+              <p style={s.muted}>Choose a section to manage your content.</p>
+
+              <div style={s.cards}>
+                {sections.map((item) => (
+                  <button
+                    type="button"
+                    key={item.title}
+                    style={s.card}
+                    onClick={() => goToPage(item.title)}
+                  >
+                    <span style={s.quickIcon}>{item.icon}</span>
+                    <h3>{item.title}</h3>
+                    <p style={s.muted}>{item.description}</p>
+                    <span style={s.badge}>Open {item.title} →</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section style={s.welcome}>
+              <div style={s.listHeader}>
+                <div>
+                  <h2>Recent Activity</h2>
+                  <p style={s.muted}>
+                    Latest movies, news and videos added to your database.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  style={s.secondary}
+                  onClick={loadDashboard}
+                  disabled={dashboardLoading}
+                >
+                  Refresh
+                </button>
+              </div>
+
+              {dashboardLoading ? (
+                <p style={s.muted}>Loading recent activity...</p>
+              ) : recentActivity.length === 0 ? (
+                <p style={s.muted}>
+                  No activity found yet. Add your first movie, news article or video.
+                </p>
+              ) : (
+                <div style={s.activityList}>
+                  {recentActivity.map((item) => (
+                    <button
+                      type="button"
+                      key={item.activityId}
+                      style={s.activityRow}
+                      onClick={() => goToPage(item.page)}
+                    >
+                      <span style={s.activityIcon}>{item.icon}</span>
+
+                      <span style={s.activityInfo}>
+                        <strong>{item.title || 'Untitled'}</strong>
+                        <span style={s.activityMeta}>
+                          {item.type} · {formatDate(item.created_at)}
+                        </span>
+                      </span>
+
+                      <span
+                        style={item.is_published ? s.publishedBadge : s.draftBadge}
+                      >
+                        {item.is_published ? 'Published' : 'Draft'}
+                      </span>
+
+                      <span style={s.activityArrow}>→</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
+
+        {/* MOVIES */}
+        {activePage === 'Movies' && (
           <>
             <section style={s.welcome}>
               <h2>{editingId ? 'Edit Movie' : 'Add New Movie'}</h2>
 
               <form onSubmit={saveMovie} style={s.form}>
                 <label style={s.label}>Movie title *
-                  <input
-                    style={s.input}
-                    name="title"
-                    value={movie.title}
-                    onChange={changeMovie}
-                    required
-                  />
+                  <input style={s.input} name="title" value={movie.title} onChange={changeMovie} required />
                 </label>
 
                 <label style={s.label}>Slug
-                  <input
-                    style={s.input}
-                    name="slug"
-                    value={movie.slug}
-                    onChange={changeMovie}
-                  />
+                  <input style={s.input} name="slug" value={movie.slug} onChange={changeMovie} />
                 </label>
 
                 <label style={s.label}>Description
-                  <textarea
-                    style={s.input}
-                    name="description"
-                    value={movie.description || ''}
-                    onChange={changeMovie}
-                    rows={3}
-                  />
+                  <textarea style={s.input} name="description" value={movie.description || ''} onChange={changeMovie} rows={3} />
                 </label>
 
                 <label style={s.label}>Poster URL
-                  <input
-                    style={s.input}
-                    type="url"
-                    name="poster_url"
-                    value={movie.poster_url || ''}
-                    onChange={changeMovie}
-                  />
+                  <input style={s.input} type="url" name="poster_url" value={movie.poster_url || ''} onChange={changeMovie} />
                 </label>
 
                 <label style={s.label}>Banner URL
-                  <input
-                    style={s.input}
-                    type="url"
-                    name="banner_url"
-                    value={movie.banner_url || ''}
-                    onChange={changeMovie}
-                  />
+                  <input style={s.input} type="url" name="banner_url" value={movie.banner_url || ''} onChange={changeMovie} />
                 </label>
 
                 <label style={s.label}>Director
-                  <input
-                    style={s.input}
-                    name="director"
-                    value={movie.director || ''}
-                    onChange={changeMovie}
-                  />
+                  <input style={s.input} name="director" value={movie.director || ''} onChange={changeMovie} />
                 </label>
 
                 <label style={s.label}>Cast members
-                  <input
-                    style={s.input}
-                    name="cast_members"
-                    value={movie.cast_members || ''}
-                    onChange={changeMovie}
-                    placeholder="Actor 1, Actor 2"
-                  />
+                  <input style={s.input} name="cast_members" value={movie.cast_members || ''} onChange={changeMovie} placeholder="Actor 1, Actor 2" />
                 </label>
 
                 <div style={s.grid}>
                   <label style={s.label}>Theatre release date
-                    <input
-                      style={s.input}
-                      type="date"
-                      name="release_date"
-                      value={movie.release_date || ''}
-                      onChange={changeMovie}
-                    />
+                    <input style={s.input} type="date" name="release_date" value={movie.release_date || ''} onChange={changeMovie} />
                   </label>
 
                   <label style={s.label}>OTT release date
-                    <input
-                      style={s.input}
-                      type="date"
-                      name="ott_release_date"
-                      value={movie.ott_release_date || ''}
-                      onChange={changeMovie}
-                    />
+                    <input style={s.input} type="date" name="ott_release_date" value={movie.ott_release_date || ''} onChange={changeMovie} />
                   </label>
                 </div>
 
                 <label style={s.label}>Status
-                  <select
-                    style={s.input}
-                    name="status"
-                    value={movie.status}
-                    onChange={changeMovie}
-                  >
+                  <select style={s.input} name="status" value={movie.status} onChange={changeMovie}>
                     <option value="UPCOMING">UPCOMING</option>
                     <option value="RELEASED">RELEASED</option>
                     <option value="STREAMING">STREAMING</option>
@@ -695,12 +885,7 @@ export default function AdminHome() {
                 </label>
 
                 <label style={s.check}>
-                  <input
-                    type="checkbox"
-                    name="is_published"
-                    checked={Boolean(movie.is_published)}
-                    onChange={changeMovie}
-                  />
+                  <input type="checkbox" name="is_published" checked={Boolean(movie.is_published)} onChange={changeMovie} />
                   Publish on website
                 </label>
 
@@ -709,19 +894,10 @@ export default function AdminHome() {
                     {saving ? 'Saving...' : editingId ? 'Update Movie' : 'Save Movie'}
                   </button>
                   {editingId && (
-                    <button
-                      type="button"
-                      style={s.secondary}
-                      onClick={resetMovie}
-                    >
-                      Cancel Edit
-                    </button>
+                    <button type="button" style={s.secondary} onClick={resetMovie}>Cancel Edit</button>
                   )}
                 </div>
               </form>
-
-              {message && <p style={s.success}>{message}</p>}
-              {error && <p style={s.error}>{error}</p>}
             </section>
 
             <section style={s.welcome}>
@@ -736,17 +912,13 @@ export default function AdminHome() {
                 <div style={s.list}>
                   {movies.map((item) => (
                     <article key={item.id} style={s.movieRow}>
-                      {item.poster_url ? (
-                        <img src={item.poster_url} alt="" style={s.poster} />
-                      ) : (
-                        <div style={s.posterPlaceholder}>🎬</div>
-                      )}
+                      {item.poster_url
+                        ? <img src={item.poster_url} alt={item.title} style={s.poster} />
+                        : <div style={s.posterPlaceholder}>🎬</div>}
 
                       <div style={s.movieInfo}>
                         <strong>{item.title}</strong>
-                        <p style={s.muted}>
-                          {item.director || 'Director not added'} · {item.status}
-                        </p>
+                        <p style={s.muted}>{item.director || 'Director not added'} · {item.status}</p>
                         <small>{item.is_published ? 'Published' : 'Draft'}</small>
                       </div>
 
@@ -758,89 +930,45 @@ export default function AdminHome() {
               )}
             </section>
           </>
+        )}
 
-        /* NEWS */
-        ) : activePage === 'News' ? (
+        {/* NEWS */}
+        {activePage === 'News' && (
           <>
             <section style={s.welcome}>
               <h2>{editingNewsId ? 'Edit News' : 'Add News'}</h2>
 
               <form onSubmit={saveNews} style={s.form}>
                 <label style={s.label}>News title *
-                  <input
-                    style={s.input}
-                    name="title"
-                    value={newsItem.title}
-                    onChange={changeNews}
-                    required
-                  />
+                  <input style={s.input} name="title" value={newsItem.title} onChange={changeNews} required />
                 </label>
 
                 <label style={s.label}>Slug
-                  <input
-                    style={s.input}
-                    name="slug"
-                    value={newsItem.slug}
-                    onChange={changeNews}
-                  />
+                  <input style={s.input} name="slug" value={newsItem.slug} onChange={changeNews} />
                 </label>
 
                 <label style={s.label}>Short description
-                  <textarea
-                    style={s.input}
-                    name="short_description"
-                    value={newsItem.short_description || ''}
-                    onChange={changeNews}
-                    rows={2}
-                  />
+                  <textarea style={s.input} name="short_description" value={newsItem.short_description || ''} onChange={changeNews} rows={2} />
                 </label>
 
                 <label style={s.label}>News content
-                  <textarea
-                    style={s.input}
-                    name="content"
-                    value={newsItem.content || ''}
-                    onChange={changeNews}
-                    rows={5}
-                  />
+                  <textarea style={s.input} name="content" value={newsItem.content || ''} onChange={changeNews} rows={5} />
                 </label>
 
                 <label style={s.label}>Image URL
-                  <input
-                    style={s.input}
-                    type="url"
-                    name="image_url"
-                    value={newsItem.image_url || ''}
-                    onChange={changeNews}
-                  />
+                  <input style={s.input} type="url" name="image_url" value={newsItem.image_url || ''} onChange={changeNews} />
                 </label>
 
                 <label style={s.label}>Category
-                  <input
-                    style={s.input}
-                    name="category"
-                    value={newsItem.category}
-                    onChange={changeNews}
-                  />
+                  <input style={s.input} name="category" value={newsItem.category} onChange={changeNews} />
                 </label>
 
                 <label style={s.label}>Tags (comma-separated)
-                  <input
-                    style={s.input}
-                    name="tagsText"
-                    value={newsItem.tagsText}
-                    onChange={changeNews}
-                    placeholder="Tamil cinema, release update"
-                  />
+                  <input style={s.input} name="tagsText" value={newsItem.tagsText} onChange={changeNews} placeholder="Tamil cinema, release update" />
                 </label>
 
                 <label style={s.check}>
-                  <input
-                    type="checkbox"
-                    name="is_published"
-                    checked={Boolean(newsItem.is_published)}
-                    onChange={changeNews}
-                  />
+                  <input type="checkbox" name="is_published" checked={Boolean(newsItem.is_published)} onChange={changeNews} />
                   Publish on website
                 </label>
 
@@ -849,19 +977,10 @@ export default function AdminHome() {
                     {saving ? 'Saving...' : editingNewsId ? 'Update News' : 'Save News'}
                   </button>
                   {editingNewsId && (
-                    <button
-                      type="button"
-                      style={s.secondary}
-                      onClick={resetNews}
-                    >
-                      Cancel Edit
-                    </button>
+                    <button type="button" style={s.secondary} onClick={resetNews}>Cancel Edit</button>
                   )}
                 </div>
               </form>
-
-              {message && <p style={s.success}>{message}</p>}
-              {error && <p style={s.error}>{error}</p>}
             </section>
 
             <section style={s.welcome}>
@@ -876,11 +995,9 @@ export default function AdminHome() {
                 <div style={s.list}>
                   {newsItems.map((item) => (
                     <article key={item.id} style={s.movieRow}>
-                      {item.image_url ? (
-                        <img src={item.image_url} alt="" style={s.poster} />
-                      ) : (
-                        <div style={s.posterPlaceholder}>📰</div>
-                      )}
+                      {item.image_url
+                        ? <img src={item.image_url} alt={item.title} style={s.poster} />
+                        : <div style={s.posterPlaceholder}>📰</div>}
 
                       <div style={s.movieInfo}>
                         <strong>{item.title}</strong>
@@ -896,50 +1013,29 @@ export default function AdminHome() {
               )}
             </section>
           </>
+        )}
 
-        /* VIDEOS */
-        ) : activePage === 'Videos' ? (
+        {/* VIDEOS */}
+        {activePage === 'Videos' && (
           <>
             <section style={s.welcome}>
               <h2>{editingVideoId ? 'Edit Video' : 'Add New Video'}</h2>
 
               <form onSubmit={saveVideo} style={s.form}>
                 <label style={s.label}>Video title *
-                  <input
-                    style={s.input}
-                    name="title"
-                    value={video.title}
-                    onChange={changeVideo}
-                    required
-                  />
+                  <input style={s.input} name="title" value={video.title} onChange={changeVideo} required />
                 </label>
 
                 <label style={s.label}>Slug
-                  <input
-                    style={s.input}
-                    name="slug"
-                    value={video.slug}
-                    onChange={changeVideo}
-                  />
+                  <input style={s.input} name="slug" value={video.slug} onChange={changeVideo} />
                 </label>
 
                 <label style={s.label}>Movie name
-                  <input
-                    style={s.input}
-                    name="movie_title"
-                    value={video.movie_title || ''}
-                    onChange={changeVideo}
-                    placeholder="Movie name"
-                  />
+                  <input style={s.input} name="movie_title" value={video.movie_title || ''} onChange={changeVideo} placeholder="Movie name" />
                 </label>
 
                 <label style={s.label}>Video type
-                  <select
-                    style={s.input}
-                    name="video_type"
-                    value={video.video_type}
-                    onChange={changeVideo}
-                  >
+                  <select style={s.input} name="video_type" value={video.video_type} onChange={changeVideo}>
                     <option value="TRAILER">Trailer</option>
                     <option value="TEASER">Teaser</option>
                     <option value="SONG">Song</option>
@@ -950,53 +1046,23 @@ export default function AdminHome() {
                 </label>
 
                 <label style={s.label}>Video URL *
-                  <input
-                    style={s.input}
-                    type="url"
-                    name="video_url"
-                    value={video.video_url || ''}
-                    onChange={changeVideo}
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    required
-                  />
+                  <input style={s.input} type="url" name="video_url" value={video.video_url || ''} onChange={changeVideo} placeholder="https://www.youtube.com/watch?v=..." required />
                 </label>
 
                 <label style={s.label}>Thumbnail URL
-                  <input
-                    style={s.input}
-                    type="url"
-                    name="thumbnail_url"
-                    value={video.thumbnail_url || ''}
-                    onChange={changeVideo}
-                    placeholder="https://..."
-                  />
+                  <input style={s.input} type="url" name="thumbnail_url" value={video.thumbnail_url || ''} onChange={changeVideo} placeholder="https://..." />
                 </label>
 
                 {video.thumbnail_url && (
-                  <img
-                    src={video.thumbnail_url}
-                    alt="Video thumbnail preview"
-                    style={s.preview}
-                  />
+                  <img src={video.thumbnail_url} alt="Video thumbnail preview" style={s.preview} />
                 )}
 
                 <label style={s.label}>Description
-                  <textarea
-                    style={s.input}
-                    name="description"
-                    value={video.description || ''}
-                    onChange={changeVideo}
-                    rows={4}
-                  />
+                  <textarea style={s.input} name="description" value={video.description || ''} onChange={changeVideo} rows={4} />
                 </label>
 
                 <label style={s.check}>
-                  <input
-                    type="checkbox"
-                    name="is_published"
-                    checked={Boolean(video.is_published)}
-                    onChange={changeVideo}
-                  />
+                  <input type="checkbox" name="is_published" checked={Boolean(video.is_published)} onChange={changeVideo} />
                   Publish on website
                 </label>
 
@@ -1005,19 +1071,10 @@ export default function AdminHome() {
                     {saving ? 'Saving...' : editingVideoId ? 'Update Video' : 'Save Video'}
                   </button>
                   {editingVideoId && (
-                    <button
-                      type="button"
-                      style={s.secondary}
-                      onClick={resetVideo}
-                    >
-                      Cancel Edit
-                    </button>
+                    <button type="button" style={s.secondary} onClick={resetVideo}>Cancel Edit</button>
                   )}
                 </div>
               </form>
-
-              {message && <p style={s.success}>{message}</p>}
-              {error && <p style={s.error}>{error}</p>}
             </section>
 
             <section style={s.welcome}>
@@ -1032,26 +1089,17 @@ export default function AdminHome() {
                 <div style={s.list}>
                   {videos.map((item) => (
                     <article key={item.id} style={s.movieRow}>
-                      {item.thumbnail_url ? (
-                        <img src={item.thumbnail_url} alt="" style={s.poster} />
-                      ) : (
-                        <div style={s.posterPlaceholder}>▶️</div>
-                      )}
+                      {item.thumbnail_url
+                        ? <img src={item.thumbnail_url} alt={item.title} style={s.poster} />
+                        : <div style={s.posterPlaceholder}>▶️</div>}
 
                       <div style={s.movieInfo}>
                         <strong>{item.title}</strong>
-                        <p style={s.muted}>
-                          {item.movie_title || 'Movie not specified'} · {item.video_type}
-                        </p>
+                        <p style={s.muted}>{item.movie_title || 'Movie not specified'} · {item.video_type}</p>
                         <small>{item.is_published ? 'Published' : 'Draft'}</small>
                         {item.video_url && (
                           <p>
-                            <a
-                              href={item.video_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={s.link}
-                            >
+                            <a href={item.video_url} target="_blank" rel="noreferrer" style={s.link}>
                               Open video ↗
                             </a>
                           </p>
@@ -1066,21 +1114,16 @@ export default function AdminHome() {
               )}
             </section>
           </>
+        )}
 
-        /* SETTINGS */
-        ) : activePage === 'Settings' ? (
+        {/* SETTINGS */}
+        {activePage === 'Settings' && (
           <section style={s.welcome}>
             <h2>⚙️ Website Settings</h2>
             <p style={s.muted}>Logged in as {email}</p>
-            <p style={s.muted}>
-              Update your NextShow website details and social media links.
-            </p>
+            <p style={s.muted}>Update your NextShow website details and social media links.</p>
 
-            <button
-              type="button"
-              style={s.back}
-              onClick={() => setActivePage('Dashboard')}
-            >
+            <button type="button" style={s.back} onClick={() => goToPage('Dashboard')}>
               ← Back to Dashboard
             </button>
 
@@ -1091,98 +1134,43 @@ export default function AdminHome() {
                 <h3 style={s.settingsHeading}>🌐 General Information</h3>
 
                 <label style={s.label}>Website Name
-                  <input
-                    style={s.input}
-                    name="site_name"
-                    value={siteSettings.site_name}
-                    onChange={changeSetting}
-                    placeholder="NextShow"
-                  />
+                  <input style={s.input} name="site_name" value={siteSettings.site_name} onChange={changeSetting} placeholder="NextShow" />
                 </label>
 
                 <label style={s.label}>Logo Image URL
-                  <input
-                    style={s.input}
-                    type="url"
-                    name="logo_url"
-                    value={siteSettings.logo_url}
-                    onChange={changeSetting}
-                    placeholder="https://example.com/logo.png"
-                  />
+                  <input style={s.input} type="url" name="logo_url" value={siteSettings.logo_url} onChange={changeSetting} placeholder="https://example.com/logo.png" />
                 </label>
 
                 {siteSettings.logo_url && (
                   <div>
                     <p style={s.muted}>Logo preview</p>
-                    <img
-                      src={siteSettings.logo_url}
-                      alt="Website logo preview"
-                      style={s.logoPreview}
-                    />
+                    <img src={siteSettings.logo_url} alt="Website logo preview" style={s.logoPreview} />
                   </div>
                 )}
 
                 <label style={s.label}>Website URL
-                  <input
-                    style={s.input}
-                    type="url"
-                    name="website_url"
-                    value={siteSettings.website_url}
-                    onChange={changeSetting}
-                    placeholder="https://nextshow.in"
-                  />
+                  <input style={s.input} type="url" name="website_url" value={siteSettings.website_url} onChange={changeSetting} placeholder="https://nextshow.in" />
                 </label>
 
                 <h3 style={s.settingsHeading}>📱 Social Media Links</h3>
 
                 <label style={s.label}>Instagram URL
-                  <input
-                    style={s.input}
-                    type="url"
-                    name="instagram_url"
-                    value={siteSettings.instagram_url}
-                    onChange={changeSetting}
-                    placeholder="https://www.instagram.com/yourpage"
-                  />
+                  <input style={s.input} type="url" name="instagram_url" value={siteSettings.instagram_url} onChange={changeSetting} placeholder="https://www.instagram.com/yourpage" />
                 </label>
 
                 <label style={s.label}>YouTube URL
-                  <input
-                    style={s.input}
-                    type="url"
-                    name="youtube_url"
-                    value={siteSettings.youtube_url}
-                    onChange={changeSetting}
-                    placeholder="https://www.youtube.com/@yourchannel"
-                  />
+                  <input style={s.input} type="url" name="youtube_url" value={siteSettings.youtube_url} onChange={changeSetting} placeholder="https://www.youtube.com/@yourchannel" />
                 </label>
 
                 <label style={s.label}>Facebook URL
-                  <input
-                    style={s.input}
-                    type="url"
-                    name="facebook_url"
-                    value={siteSettings.facebook_url}
-                    onChange={changeSetting}
-                    placeholder="https://www.facebook.com/yourpage"
-                  />
+                  <input style={s.input} type="url" name="facebook_url" value={siteSettings.facebook_url} onChange={changeSetting} placeholder="https://www.facebook.com/yourpage" />
                 </label>
 
                 <div style={s.actions}>
-                  <button
-                    type="submit"
-                    style={s.primary}
-                    disabled={settingsSaving}
-                  >
+                  <button type="submit" style={s.primary} disabled={settingsSaving}>
                     {settingsSaving ? 'Saving...' : '💾 Save Settings'}
                   </button>
-
-                  <button
-                    type="button"
-                    style={s.secondary}
-                    onClick={loadSettings}
-                    disabled={settingsSaving}
-                  >
+                  <button type="button" style={s.secondary} onClick={loadSettings} disabled={settingsSaving}>
                     Reload Settings
                   </button>
                 </div>
@@ -1190,19 +1178,17 @@ export default function AdminHome() {
             )}
 
             {settingsMessage && (
-              <p
-                style={
-                  settingsMessage.toLowerCase().includes('failed') ||
-                  settingsMessage.toLowerCase().includes('could not')
-                    ? s.error
-                    : s.success
-                }
-              >
+              <p style={
+                settingsMessage.toLowerCase().includes('failed') ||
+                settingsMessage.toLowerCase().includes('could not')
+                  ? s.error
+                  : s.success
+              }>
                 {settingsMessage}
               </p>
             )}
           </section>
-        ) : null}
+        )}
       </main>
     </div>
   )
@@ -1226,6 +1212,16 @@ const s = {
     flexDirection: 'column',
     gap: 14,
   },
+  brand: {
+    background: 'transparent',
+    color: '#fff',
+    border: 0,
+    fontSize: 23,
+    fontWeight: 800,
+    textAlign: 'left',
+    cursor: 'pointer',
+    padding: 0,
+  },
   main: {
     flex: 1,
     minWidth: 0,
@@ -1240,9 +1236,11 @@ const s = {
     borderBottom: '1px solid #30303a',
     paddingBottom: 20,
   },
-  muted: {
-    color: '#999',
+  email: {
+    color: '#bbb',
+    overflowWrap: 'anywhere',
   },
+  muted: { color: '#999' },
   nav: {
     background: 'transparent',
     color: '#ddd',
@@ -1270,6 +1268,62 @@ const s = {
     background: '#1b1b27',
     border: '1px solid #343443',
   },
+  dashboardWelcome: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 20,
+  },
+  eyebrow: {
+    color: '#ff656d',
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: 2,
+  },
+  statGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+    gap: 18,
+    marginTop: 24,
+  },
+  statCard: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 10,
+    background: 'linear-gradient(145deg, #222230, #171720)',
+    color: '#fff',
+    border: '1px solid #3b3545',
+    borderRadius: 14,
+    padding: 22,
+    textAlign: 'left',
+    cursor: 'pointer',
+    minWidth: 0,
+  },
+  statIcon: {
+    display: 'grid',
+    placeItems: 'center',
+    width: 46,
+    height: 46,
+    background: '#35171d',
+    borderRadius: 12,
+    fontSize: 24,
+  },
+  statLabel: {
+    color: '#bbb',
+    fontSize: 14,
+  },
+  statNumber: {
+    fontSize: 36,
+    lineHeight: 1.2,
+    color: '#fff',
+  },
+  statFooter: {
+    color: '#ff656d',
+    fontSize: 13,
+    marginTop: 4,
+  },
   cards: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -1286,9 +1340,72 @@ const s = {
     cursor: 'pointer',
     fontSize: 15,
   },
+  quickIcon: {
+    fontSize: 28,
+  },
   badge: {
     color: '#ff656d',
     fontSize: 13,
+  },
+  activityList: {
+    display: 'grid',
+    gap: 10,
+    marginTop: 18,
+  },
+  activityRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    width: '100%',
+    minWidth: 0,
+    padding: 14,
+    textAlign: 'left',
+    color: '#fff',
+    background: '#14141d',
+    border: '1px solid #343443',
+    borderRadius: 10,
+    cursor: 'pointer',
+  },
+  activityIcon: {
+    display: 'grid',
+    placeItems: 'center',
+    flexShrink: 0,
+    width: 42,
+    height: 42,
+    background: '#252532',
+    borderRadius: 10,
+    fontSize: 21,
+  },
+  activityInfo: {
+    display: 'grid',
+    gap: 6,
+    flex: 1,
+    minWidth: 0,
+    overflowWrap: 'anywhere',
+  },
+  activityMeta: {
+    color: '#999',
+    fontSize: 12,
+  },
+  publishedBadge: {
+    color: '#86efac',
+    background: '#143322',
+    padding: '5px 8px',
+    borderRadius: 6,
+    fontSize: 11,
+    whiteSpace: 'nowrap',
+  },
+  draftBadge: {
+    color: '#fcd34d',
+    background: '#3b2d13',
+    padding: '5px 8px',
+    borderRadius: 6,
+    fontSize: 11,
+    whiteSpace: 'nowrap',
+  },
+  activityArrow: {
+    color: '#ff656d',
+    fontSize: 20,
   },
   logout: {
     marginTop: 'auto',
@@ -1375,6 +1492,7 @@ const s = {
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 12,
+    flexWrap: 'wrap',
   },
   list: {
     display: 'grid',
@@ -1449,5 +1567,4 @@ const s = {
     padding: 10,
   },
 }
-
 
